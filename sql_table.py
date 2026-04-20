@@ -139,6 +139,48 @@ class SQLTable:
     def full_join(self, other_table: str, on_condition: str):
         return self.join(other_table, on_condition, "FULL")
 
+    #  union
+
+    def union(self, other_table: str, columns: List[str], all: bool = False):
+        self._validate_name(other_table)
+
+        if not columns:
+            raise ValueError("Нужно указать колонки для UNION")
+
+        for col in columns:
+            self._validate_name(col)
+
+        cols = ", ".join(f'"{c}"' for c in columns)
+        union_type = "UNION ALL" if all else "UNION"
+
+        query = f'''
+        SELECT {cols} FROM "{self.table_name}"
+        {union_type}
+        SELECT {cols} FROM "{other_table}"
+        '''
+
+        self.cursor.execute(query)
+        return self.cursor.fetchall()
+
+    def union_query(self, other_query: str, columns: List[str], all: bool = False):
+        if not columns:
+            raise ValueError("Нужно указать колонки для UNION")
+
+        for col in columns:
+            self._validate_name(col)
+
+        cols = ", ".join(f'"{c}"' for c in columns)
+        union_type = "UNION ALL" if all else "UNION"
+
+        query = f'''
+        SELECT {cols} FROM "{self.table_name}"
+        {union_type}
+        {other_query}
+        '''
+
+        self.cursor.execute(query)
+        return self.cursor.fetchall()
+
     #  insert 
 
     def insert(self, data: Dict[str, Any]):
@@ -253,6 +295,5 @@ db_config = {
 }
 
 """
-добавление функций uion
 автоматизировать добавленные функции
 """
