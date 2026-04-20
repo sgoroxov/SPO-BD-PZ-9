@@ -106,6 +106,39 @@ class SQLTable:
         )
         return self.cursor.fetchall()
 
+    #  JOIN 
+
+    def join(self, other_table: str, on_condition: str, join_type: str = "INNER"):
+        self._validate_name(other_table)
+
+        allowed = {"INNER", "LEFT", "RIGHT", "FULL"}
+        join_type = join_type.upper()
+
+        if join_type not in allowed:
+            raise ValueError(f"Недопустимый тип JOIN: {join_type}")
+
+        query = f'''
+        SELECT *
+        FROM "{self.table_name}"
+        {join_type} JOIN "{other_table}"
+        ON {on_condition}
+        '''
+
+        self.cursor.execute(query)
+        return self.cursor.fetchall()
+
+    def inner_join(self, other_table: str, on_condition: str):
+        return self.join(other_table, on_condition, "INNER")
+
+    def left_join(self, other_table: str, on_condition: str):
+        return self.join(other_table, on_condition, "LEFT")
+
+    def right_join(self, other_table: str, on_condition: str):
+        return self.join(other_table, on_condition, "RIGHT")
+
+    def full_join(self, other_table: str, on_condition: str):
+        return self.join(other_table, on_condition, "FULL")
+
     #  insert 
 
     def insert(self, data: Dict[str, Any]):
@@ -131,7 +164,6 @@ class SQLTable:
         for col in columns:
             self._validate_name(col)
 
-        # одинаковые ключи
         for row in data_list:
             if list(row.keys()) != columns:
                 raise ValueError("Все словари должны иметь одинаковые ключи")
@@ -221,7 +253,6 @@ db_config = {
 }
 
 """
-добавление функций join всех видов
 добавление функций uion
 автоматизировать добавленные функции
 """
