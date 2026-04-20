@@ -5,6 +5,8 @@ from typing import List, Dict, Any
 
 
 class SQLTable:
+    ALLOWED_TYPES = {"INT", "INTEGER", "TEXT", "BOOLEAN", "DATE"}
+
     def __init__(self, db_config: Dict[str, str], table_name: str, pk: str = "id"):
         self.db_config = db_config
         self._validate_name(table_name)
@@ -16,10 +18,24 @@ class SQLTable:
         self.connection = psycopg2.connect(**db_config)
         self.cursor = self.connection.cursor()
 
+    #  utils 
+
     @staticmethod
     def _validate_name(name: str) -> None:
         if not re.fullmatch(r"[A-Za-z0-9_]+", name):
             raise ValueError(f"Недопустимое имя: {name}")
+
+    def _validate_type(self, col_type: str) -> None:
+        base = col_type.split("(")[0].upper()
+        if base not in self.ALLOWED_TYPES and not base.startswith("VARCHAR"):
+            raise ValueError(f"Недопустимый тип: {col_type}")
+
+    def _validate_default(self, value: Any) -> None:
+        if isinstance(value, (int, float, bool)):
+            return
+        if isinstance(value, str) and value.isalnum():
+            return
+        raise ValueError("Небезопасное значение DEFAULT")
 
     #  table 
 
@@ -32,9 +48,9 @@ class SQLTable:
             col_type = column["type"]
 
             self._validate_name(name)
+            self._validate_type(col_type)
 
             if column.get("auto_increment", False):
-                # SERIAL → современный вариант
                 col_def = f'"{name}" INTEGER GENERATED ALWAYS AS IDENTITY'
                 auto_incr = name
             else:
@@ -47,6 +63,7 @@ class SQLTable:
                 col_def += " UNIQUE"
 
             if "default" in column:
+                self._validate_default(column["default"])
                 col_def += f" DEFAULT {column['default']}"
 
             parts.append(col_def)
@@ -114,7 +131,7 @@ class SQLTable:
         for col in columns:
             self._validate_name(col)
 
-        # проверка одинаковых ключей
+        # одинаковые ключи
         for row in data_list:
             if list(row.keys()) != columns:
                 raise ValueError("Все словари должны иметь одинаковые ключи")
@@ -204,7 +221,6 @@ db_config = {
 }
 
 """
-фильтрация ввода
 добавление функций join всех видов
 добавление функций uion
 автоматизировать добавленные функции
