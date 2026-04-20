@@ -26,7 +26,6 @@ class SQLTable:
         if not re.fullmatch(r"[A-Za-z0-9_]+", name):
             raise ValueError(f"Недопустимое имя: {name}")
 
-    # 🔥 ФИКС: правильная обработка users.id
     def _format_column(self, col: str) -> str:
         if "." in col:
             table, field = col.split(".")
