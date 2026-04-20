@@ -4,6 +4,59 @@ import csv
 from typing import List, Dict, Any
 
 
+#  QUERY BUILDER 
+
+class QueryBuilder:
+    def __init__(self, table_name: str, cursor):
+        self.table_name = table_name
+        self.cursor = cursor
+
+        self._select = "*"
+        self._joins = []
+        self._where = []
+        self._union = None
+
+    def select(self, columns: List[str]):
+        if columns:
+            self._select = ", ".join(f'"{c}"' for c in columns)
+        return self
+
+    def join(self, table: str, condition: str, join_type="INNER"):
+        self._joins.append(f'{join_type} JOIN "{table}" ON {condition}')
+        return self
+
+    def where(self, condition: str):
+        self._where.append(condition)
+        return self
+
+    def union(self, other_query: str, all=False):
+        union_type = "UNION ALL" if all else "UNION"
+        self._union = (union_type, other_query)
+        return self
+
+    def build(self):
+        query = f'SELECT {self._select} FROM "{self.table_name}"'
+
+        if self._joins:
+            query += " " + " ".join(self._joins)
+
+        if self._where:
+            query += " WHERE " + " AND ".join(self._where)
+
+        if self._union:
+            union_type, other_query = self._union
+            query = f"{query} {union_type} {other_query}"
+
+        return query
+
+    def execute(self):
+        query = self.build()
+        self.cursor.execute(query)
+        return self.cursor.fetchall()
+
+
+#  MAIN CLASS 
+
 class SQLTable:
     ALLOWED_TYPES = {"INT", "INTEGER", "TEXT", "BOOLEAN", "DATE"}
 
@@ -36,6 +89,14 @@ class SQLTable:
         if isinstance(value, str) and value.isalnum():
             return
         raise ValueError("Небезопасное значение DEFAULT")
+
+    #  builder 
+
+    def select(self, columns: List[str] = None):
+        qb = QueryBuilder(self.table_name, self.cursor)
+        if columns:
+            qb.select(columns)
+        return qb
 
     #  table 
 
@@ -85,7 +146,7 @@ class SQLTable:
         self.cursor.execute(query)
         self.connection.commit()
 
-    #  select 
+    #  SELECT 
 
     def get_all(self):
         self.cursor.execute(f'SELECT * FROM "{self.table_name}"')
@@ -139,7 +200,7 @@ class SQLTable:
     def full_join(self, other_table: str, on_condition: str):
         return self.join(other_table, on_condition, "FULL")
 
-    #  union
+    #  UNION 
 
     def union(self, other_table: str, columns: List[str], all: bool = False):
         self._validate_name(other_table)
@@ -181,7 +242,7 @@ class SQLTable:
         self.cursor.execute(query)
         return self.cursor.fetchall()
 
-    #  insert 
+    #  INSERT 
 
     def insert(self, data: Dict[str, Any]):
         columns = list(data.keys())
@@ -218,7 +279,7 @@ class SQLTable:
         self.cursor.executemany(query, values)
         self.connection.commit()
 
-    #  update 
+    #  UPDATE 
 
     def update(self, value: int, data: Dict[str, Any]):
         for col in data.keys():
@@ -231,7 +292,7 @@ class SQLTable:
         self.cursor.execute(query, values)
         self.connection.commit()
 
-    #  delete 
+    #  DELETE 
 
     def delete_by_id(self, value: int):
         self.cursor.execute(
@@ -244,7 +305,7 @@ class SQLTable:
         self.cursor.execute(f'DROP TABLE IF EXISTS "{self.table_name}"')
         self.connection.commit()
 
-    #  info 
+    #  INFO 
 
     def describe_table(self):
         self.cursor.execute("""
@@ -254,7 +315,7 @@ class SQLTable:
         """, (self.table_name,))
         return self.cursor.fetchall()
 
-    #  csv 
+    #  CSV 
 
     def export_csv(self, filename: str):
         self.get_all()
@@ -293,7 +354,3 @@ db_config = {
     "password": "1234",
     "dbname": "mydb"
 }
-
-"""
-автоматизировать добавленные функции
-"""
