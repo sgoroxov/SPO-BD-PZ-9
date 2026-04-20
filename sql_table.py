@@ -4,62 +4,7 @@ import csv
 from typing import List, Dict, Any
 
 
-#  QUERY BUILDER 
-
-class QueryBuilder:
-    def __init__(self, table_name: str, cursor):
-        self.table_name = table_name
-        self.cursor = cursor
-
-        self._select = "*"
-        self._joins = []
-        self._where = []
-        self._union = None
-
-    def select(self, columns: List[str]):
-        if columns:
-            self._select = ", ".join(f'"{c}"' for c in columns)
-        return self
-
-    def join(self, table: str, condition: str, join_type="INNER"):
-        self._joins.append(f'{join_type} JOIN "{table}" ON {condition}')
-        return self
-
-    def where(self, condition: str):
-        self._where.append(condition)
-        return self
-
-    def union(self, other_query: str, all=False):
-        union_type = "UNION ALL" if all else "UNION"
-        self._union = (union_type, other_query)
-        return self
-
-    def build(self):
-        query = f'SELECT {self._select} FROM "{self.table_name}"'
-
-        if self._joins:
-            query += " " + " ".join(self._joins)
-
-        if self._where:
-            query += " WHERE " + " AND ".join(self._where)
-
-        if self._union:
-            union_type, other_query = self._union
-            query = f"{query} {union_type} {other_query}"
-
-        return query
-
-    def execute(self):
-        query = self.build()
-        self.cursor.execute(query)
-        return self.cursor.fetchall()
-
-
-#  MAIN CLASS 
-
 class SQLTable:
-    ALLOWED_TYPES = {"INT", "INTEGER", "TEXT", "BOOLEAN", "DATE"}
-
     def __init__(self, db_config: Dict[str, str], table_name: str, pk: str = "id"):
         self.db_config = db_config
         self._validate_name(table_name)
@@ -71,34 +16,28 @@ class SQLTable:
         self.connection = psycopg2.connect(**db_config)
         self.cursor = self.connection.cursor()
 
-    #  utils 
+        # для query builder
+        self._select = []
+        self._where = []
+        self._join = []
 
     @staticmethod
     def _validate_name(name: str) -> None:
         if not re.fullmatch(r"[A-Za-z0-9_]+", name):
             raise ValueError(f"Недопустимое имя: {name}")
 
-    def _validate_type(self, col_type: str) -> None:
-        base = col_type.split("(")[0].upper()
-        if base not in self.ALLOWED_TYPES and not base.startswith("VARCHAR"):
-            raise ValueError(f"Недопустимый тип: {col_type}")
+    # 🔥 ФИКС: правильная обработка users.id
+    def _format_column(self, col: str) -> str:
+        if "." in col:
+            table, field = col.split(".")
+            self._validate_name(table)
+            self._validate_name(field)
+            return f'"{table}"."{field}"'
+        else:
+            self._validate_name(col)
+            return f'"{col}"'
 
-    def _validate_default(self, value: Any) -> None:
-        if isinstance(value, (int, float, bool)):
-            return
-        if isinstance(value, str) and value.isalnum():
-            return
-        raise ValueError("Небезопасное значение DEFAULT")
-
-    #  builder 
-
-    def select(self, columns: List[str] = None):
-        qb = QueryBuilder(self.table_name, self.cursor)
-        if columns:
-            qb.select(columns)
-        return qb
-
-    #  table 
+    #  TABLE 
 
     def create_table(self, columns: list, primary_key=None):
         parts = []
@@ -109,7 +48,6 @@ class SQLTable:
             col_type = column["type"]
 
             self._validate_name(name)
-            self._validate_type(col_type)
 
             if column.get("auto_increment", False):
                 col_def = f'"{name}" INTEGER GENERATED ALWAYS AS IDENTITY'
@@ -124,7 +62,6 @@ class SQLTable:
                 col_def += " UNIQUE"
 
             if "default" in column:
-                self._validate_default(column["default"])
                 col_def += f" DEFAULT {column['default']}"
 
             parts.append(col_def)
@@ -165,81 +102,6 @@ class SQLTable:
             f'SELECT * FROM "{self.table_name}" WHERE "{column_name}" = %s',
             (value,)
         )
-        return self.cursor.fetchall()
-
-    #  JOIN 
-
-    def join(self, other_table: str, on_condition: str, join_type: str = "INNER"):
-        self._validate_name(other_table)
-
-        allowed = {"INNER", "LEFT", "RIGHT", "FULL"}
-        join_type = join_type.upper()
-
-        if join_type not in allowed:
-            raise ValueError(f"Недопустимый тип JOIN: {join_type}")
-
-        query = f'''
-        SELECT *
-        FROM "{self.table_name}"
-        {join_type} JOIN "{other_table}"
-        ON {on_condition}
-        '''
-
-        self.cursor.execute(query)
-        return self.cursor.fetchall()
-
-    def inner_join(self, other_table: str, on_condition: str):
-        return self.join(other_table, on_condition, "INNER")
-
-    def left_join(self, other_table: str, on_condition: str):
-        return self.join(other_table, on_condition, "LEFT")
-
-    def right_join(self, other_table: str, on_condition: str):
-        return self.join(other_table, on_condition, "RIGHT")
-
-    def full_join(self, other_table: str, on_condition: str):
-        return self.join(other_table, on_condition, "FULL")
-
-    #  UNION 
-
-    def union(self, other_table: str, columns: List[str], all: bool = False):
-        self._validate_name(other_table)
-
-        if not columns:
-            raise ValueError("Нужно указать колонки для UNION")
-
-        for col in columns:
-            self._validate_name(col)
-
-        cols = ", ".join(f'"{c}"' for c in columns)
-        union_type = "UNION ALL" if all else "UNION"
-
-        query = f'''
-        SELECT {cols} FROM "{self.table_name}"
-        {union_type}
-        SELECT {cols} FROM "{other_table}"
-        '''
-
-        self.cursor.execute(query)
-        return self.cursor.fetchall()
-
-    def union_query(self, other_query: str, columns: List[str], all: bool = False):
-        if not columns:
-            raise ValueError("Нужно указать колонки для UNION")
-
-        for col in columns:
-            self._validate_name(col)
-
-        cols = ", ".join(f'"{c}"' for c in columns)
-        union_type = "UNION ALL" if all else "UNION"
-
-        query = f'''
-        SELECT {cols} FROM "{self.table_name}"
-        {union_type}
-        {other_query}
-        '''
-
-        self.cursor.execute(query)
         return self.cursor.fetchall()
 
     #  INSERT 
@@ -302,23 +164,55 @@ class SQLTable:
         self.connection.commit()
 
     def delete_table(self):
-        self.cursor.execute(f'DROP TABLE IF EXISTS "{self.table_name}"')
+        self.cursor.execute(f'DROP TABLE IF EXISTS "{self.table_name}" CASCADE')
         self.connection.commit()
 
-    #  INFO 
+    #  JOIN 
 
-    def describe_table(self):
-        self.cursor.execute("""
-        SELECT column_name, data_type
-        FROM information_schema.columns
-        WHERE table_name = %s
-        """, (self.table_name,))
+    def inner_join(self, other_table: str, left: str, right: str):
+        self._join.append(f'INNER JOIN "{other_table}" ON {self._format_column(left)} = {self._format_column(right)}')
+        return self
+
+    def left_join(self, other_table: str, left: str, right: str):
+        self._join.append(f'LEFT JOIN "{other_table}" ON {self._format_column(left)} = {self._format_column(right)}')
+        return self
+
+    #  UNION 
+
+    def union(self, other_query: str):
+        return f"({self.build_query()}) UNION ({other_query})"
+
+    #  QUERY BUILDER 
+
+    def select(self, *columns):
+        self._select = columns
+        return self
+
+    def where(self, condition: str):
+        self._where.append(condition)
+        return self
+
+    def build_query(self):
+        columns = ", ".join(self._format_column(c) for c in self._select) if self._select else "*"
+        query = f'SELECT {columns} FROM "{self.table_name}"'
+
+        if self._join:
+            query += " " + " ".join(self._join)
+
+        if self._where:
+            query += " WHERE " + " AND ".join(self._where)
+
+        return query
+
+    def execute(self):
+        query = self.build_query()
+        self.cursor.execute(query)
         return self.cursor.fetchall()
 
     #  CSV 
 
     def export_csv(self, filename: str):
-        self.get_all()
+        self.cursor.execute(f'SELECT * FROM "{self.table_name}"')
         headers = [desc[0] for desc in self.cursor.description]
         rows = self.cursor.fetchall()
 
@@ -339,7 +233,7 @@ class SQLTable:
 
             self.insert_many(list(reader))
 
-    #  close 
+    #  CLOSE 
 
     def close(self):
         self.cursor.close()
@@ -348,9 +242,9 @@ class SQLTable:
 
 # конфиг
 db_config = {
-    "host": "localhost",
+    "host": "127.0.0.1",
     "port": 5432,
     "user": "user",
     "password": "1234",
-    "dbname": "mydb"
+    "dbname": "mybd"
 }
